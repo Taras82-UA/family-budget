@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Сімейний бюджет</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f2f2f2;
+    }
+    h2 {
+      text-align: center;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    label, select, input {
+      display: block;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    input, select, button {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f4f4f4;
+    }
+    .totals {
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    canvas {
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Сімейний бюджет</h2>
+
+    <label>Тип запису:
+      <select id="type">
+        <option value="income">Доходи</option>
+        <option value="expense">Витрати</option>
+      </select>
+    </label>
+
+    <label>Категорія:
+      <select id="category"></select>
+    </label>
+
+    <label>Сума:
+      <input type="number" id="amount" placeholder="Введіть суму">
+    </label>
+
+    <label>Валюта:
+      <select id="currency">
+        <option value="CHF">CHF</option>
+        <option value="UAH">UAH</option>
+      </select>
+    </label>
+
+    <label>Дата:
+      <input type="date" id="date">
+    </label>
+
+    <label>Фільтр за місяцем:
+      <input type="month" id="monthFilter">
+    </label>
+
+    <button onclick="addEntry()">Додати запис</button>
+    <button onclick="exportCSV()">Експортувати у CSV</button>
+
+    <table id="records">
+      <thead>
+        <tr>
+          <th>Тип</th>
+          <th>Категорія</th>
+          <th>Сума</th>
+          <th>Валюта</th>
+          <th>Дата</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="totals" id="totals"></div>
+
+    <canvas id="chart" height="300"></canvas>
+  </div>
+
+  <script>
+    const categories = {
+      income: ["Зарплата", "Інше"],
+      expense: [
+        "Оренда житла",
+        "Комунальні",
+        "Медичне страхування",
+        "Харчування",
+        "Дитина",
+        "Громадський транспорт",
+        "Інше: Подорожі",
+        "Інше: Освіта",
+        "Інше: Ліки, лікування",
+        "Інше: Податки та банки",
+        "Інше: Мобілка, Internet",
+        "Інше: Засоби гігієни",
+        "Інше: Дозвілля",
+        "Інше: Податок",
+        "Інше: Одяг",
+        "Інше: Подарунки, іграшки",
+        "Інше: Банківські послуги",
+        "Інше: Інше"
+      ]
+    };
+
+    const typeSelect = document.getElementById("type");
+    const categorySelect = document.getElementById("category");
+    const tableBody = document.querySelector("#records tbody");
+    const totalsDiv = document.getElementById("totals");
+    const chartCanvas = document.getElementById("chart");
+    const dateInput = document.getElementById("date");
+    const monthFilter = document.getElementById("monthFilter");
+    let chart;
+
+    let entries = JSON.parse(localStorage.getItem("budgetEntries") || "[]");
+
+    function updateCategoryOptions() {
+      const type = typeSelect.value;
+      categorySelect.innerHTML = "";
+      categories[type].forEach(cat => {
+        const opt = document.createElement("option");
+        opt.value = cat;
+        opt.textContent = cat;
+        categorySelect.appendChild(opt);
+      });
+    }
+
+    function addEntry() {
+      const type = typeSelect.value;
+      const category = categorySelect.value;
+      const amount = parseFloat(document.getElementById("amount").value);
+      const currency = document.getElementById("currency").value;
+      const date = dateInput.value;
+
+      if (!amount || amount <= 0 || !date) return;
+
+      entries.push({ type, category, amount, currency, date });
+      localStorage.setItem("budgetEntries", JSON.stringify(entries));
+      renderTable();
+    }
+
+    function renderTable() {
+      const filterMonth = monthFilter.value;
+      tableBody.innerHTML = "";
+      const totals = { CHF: 0, UAH: 0 };
+      const expenseSummary = {};
+
+      entries.forEach(entry => {
+        if (filterMonth && !entry.date.startsWith(filterMonth)) return;
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${entry.type === "income" ? "Доходи" : "Витрати"}</td>
+          <td>${entry.category}</td>
+          <td>${entry.amount.toFixed(2)}</td>
+          <td>${entry.currency}</td>
+          <td>${entry.date}</td>
+        `;
+        tableBody.appendChild(row);
+
+        if (entry.type === "income") {
+          totals[entry.currency] += entry.amount;
+        } else {
+          totals[entry.currency] -= entry.amount;
+          if (entry.currency === "CHF") {
+            expenseSummary[entry.category] = (expenseSummary[entry.category] || 0) + entry.amount;
+          }
+        }
+      });
+
+      totalsDiv.innerHTML = `
+        Баланс: <br>
+        CHF: <strong>${totals.CHF.toFixed(2)}</strong><br>
+        UAH: <strong>${totals.UAH.toFixed(2)}</strong>
+      `;
+
+      renderChart(expenseSummary);
+    }
+
+    function renderChart(data) {
+      const labels = Object.keys(data);
+      const values = Object.values(data);
+
+      if (chart) chart.destroy();
+
+      chart = new Chart(chartCanvas, {
+        type: "doughnut",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "Витрати CHF",
+            data: values,
+            backgroundColor: [
+              "#f44336", "#2196f3", "#4caf50", "#ff9800",
+              "#9c27b0", "#00bcd4", "#8bc34a", "#ffc107",
+              "#673ab7", "#03a9f4", "#009688", "#e91e63",
+              "#cddc39", "#ff5722", "#607d8b"
+            ]
+          }]
+        }
+      });
+    }
+
+    function exportCSV() {
+      const csvRows = ["Тип,Категорія,Сума,Валюта,Дата"];
+      entries.forEach(e => {
+        csvRows.push(`${e.type === "income" ? "Доходи" : "Витрати"},${e.category},${e.amount},${e.currency},${e.date}`);
+      });
+      const blob = new Blob([csvRows.join("\n")], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "budget.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    typeSelect.addEventListener("change", updateCategoryOptions);
+    monthFilter.addEventListener("change", renderTable);
+    updateCategoryOptions();
+    renderTable();
+  </script>
+</body>
+</html>
